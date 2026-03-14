@@ -1,8 +1,6 @@
 // Digital Clock with Date, Day & Month Name (12-hour format)
-
 #include <stdio.h>
 #include <time.h>
-
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -11,13 +9,10 @@
 
 int main() 
 {
-
     while (1)
      {
-
         time_t now = time(NULL);
         struct tm *t = localtime(&now);
-
         int hour = t->tm_hour;
         char *period;
 
@@ -35,11 +30,11 @@ int main()
         {
             period = "PM";
         }
-        else {
+        else 
+        {
             hour = hour - 12;
             period = "PM";
         }
-
         // Day names
         char *days[] = 
         {
@@ -62,19 +57,16 @@ int main()
         #else
         system("clear");
         #endif
-
         printf("Digital Clock with Full Date\n");
         printf("-------------------------------\n");
-
         printf("Time : %02d:%02d:%02d %s\n",
                hour,
                t->tm_min,
                t->tm_sec,
                period);
-
         printf("Date : %02d %s %04d\n",
                t->tm_mday,
-               months[t->tm_mon],   // month name
+               months[t->tm_mon],  
                t->tm_year + 1900);
 
         printf("Day  : %s\n",
@@ -86,6 +78,5 @@ int main()
         sleep(1);
         #endif
     }
-
     return 0;
 }
