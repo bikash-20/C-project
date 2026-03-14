@@ -1,3 +1,4 @@
+//"This code is designed to run exclusively on macOS and Linux.”
 #include <stdio.h>
 #include <time.h>
 #include <stdlib.h>
