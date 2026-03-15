@@ -1,4 +1,4 @@
-//"This code is designed to run exclusively on macOS and Linux.”
+//"This code is designed to run exclusively on macOS and Linux."
 #include <stdio.h>
 #include <time.h>
 #include <stdlib.h>
@@ -14,29 +14,73 @@
 #define RESET   "\x1b[0m"
 #define BOLD    "\033[1m"
 
-int alarmH, alarmM;
-int isSnoozed = 0;
-int alarmTriggered = 0;
-time_t snoozeUntil = 0;
+typedef struct 
+{
+    int    alarmH;
+    int    alarmM;
+    int    isSnoozed;
+    int    isRunning;
+    int    alarmTriggered;
+    time_t snoozeUntil;
+} ClockState;
+
+ClockState state = {0, 0, 0, 1, 0, 0};
 pthread_mutex_t alarm_mutex;
 
-static const char *months[] = {
+static const char *months[] = 
+{
     "Jan","Feb","Mar","Apr","May","Jun",
     "Jul","Aug","Sep","Oct","Nov","Dec"
 };
 
+static const char *days[] = 
+{
+    "Sunday","Monday","Tuesday","Wednesday",
+    "Thursday","Friday","Saturday"
+};
+
+void startup_animation() 
+{
+    const char *title = "   MAC PRO DIGITAL CLOCK";
+    system("clear");
+    printf(CYAN "=======================================\n" RESET);
+    printf(BOLD MAGENTA);
+    for (int i = 0; title[i] != '\0'; i++) 
+    {
+        printf("%c", title[i]);
+        fflush(stdout);
+        usleep(40000);
+    }
+    printf(RESET "\n");
+    printf(CYAN "=======================================\n" RESET);
+    printf(BOLD GREEN "\n        Initializing system...\n" RESET);
+    usleep(500000);
+    printf(BOLD GREEN "        Loading threads...\n" RESET);
+    usleep(500000);
+    printf(BOLD GREEN "        Clock ready!\n\n" RESET);
+    usleep(600000);
+}
+
 void* clock_thread(void* arg) 
 {
+    int ring_frame = 0;
+
     while (1) 
     {
+        pthread_mutex_lock(&alarm_mutex);
+        int running = state.isRunning;
+        pthread_mutex_unlock(&alarm_mutex);
+        if (!running) break;
+
         time_t now = time(NULL);
         struct tm *t = localtime(&now);
 
-        system("clear");
-
         pthread_mutex_lock(&alarm_mutex);
-        int current_snooze_status = isSnoozed;
-        time_t current_snooze_until = snoozeUntil;
+        int    current_snooze_status  = state.isSnoozed;
+        time_t current_snooze_until   = state.snoozeUntil;
+        int    current_alarm_h        = state.alarmH;
+        int    current_alarm_m        = state.alarmM;
+        int    current_triggered      = state.alarmTriggered;
         pthread_mutex_unlock(&alarm_mutex);
 
         int displayHour = t->tm_hour;
@@ -44,12 +88,13 @@ void* clock_thread(void* arg)
         if (displayHour == 0) displayHour = 12;
         else if (displayHour > 12) displayHour -= 12;
 
+        system("clear");
         printf(CYAN "=======================================\n" RESET);
         printf(BOLD MAGENTA "       MAC PRO DIGITAL CLOCK\n" RESET);
         printf(CYAN "=======================================\n" RESET);
 
         printf(YELLOW " [Alarm: %02d:%02d]  [Snooze: %s]\n" RESET,
-               alarmH, alarmM,
+               current_alarm_h, current_alarm_m,
                current_snooze_status ? GREEN "ACTIVE" RESET : RED "OFF" RESET);
 
         printf(CYAN "---------------------------------------\n" RESET);
@@ -57,11 +102,24 @@ void* clock_thread(void* arg)
         printf(BOLD GREEN "    TIME : %02d:%02d:%02d %s\n" RESET,
                displayHour, t->tm_min, t->tm_sec, period);
 
-        printf(BLUE "    DATE : %02d %s %04d\n" RESET,
-               t->tm_mday, months[t->tm_mon], t->tm_year + 1900);
+        printf(BLUE "    DATE : %s, %02d %s %04d\n" RESET,
+               days[t->tm_wday], t->tm_mday,
+               months[t->tm_mon], t->tm_year + 1900);
 
         printf(CYAN "---------------------------------------\n" RESET);
-        printf(YELLOW " >> Press 's' + Enter to Snooze\n" RESET);
+
+        if (current_snooze_status) 
+        {
+            int remaining = (int)(current_snooze_until - now);
+            if (remaining < 0) remaining = 0;
+            printf(YELLOW " >> Snooze: ringing again in %02d sec\n" RESET, remaining);
+        } 
+        else 
+        {
+            printf(YELLOW " >> Press 's' + Enter to Snooze\n" RESET);
+        }
+
+        printf(YELLOW " >> Press 'q' + Enter to Quit\n" RESET);
         printf(CYAN "=======================================\n" RESET);
 
         int should_ring = 0;
@@ -69,22 +127,37 @@ void* clock_thread(void* arg)
         if (current_snooze_status && now >= current_snooze_until) 
         {
             pthread_mutex_lock(&alarm_mutex);
-            isSnoozed = 0;
+            state.isSnoozed       = 0;
+            state.alarmTriggered  = 0;
             pthread_mutex_unlock(&alarm_mutex);
             should_ring = 1;
         } 
-        else if (!current_snooze_status &&
-                   t->tm_hour == alarmH &&
-                   t->tm_min == alarmM &&
-                   t->tm_sec == 0) 
+        else if (!current_snooze_status      &&
+                 !current_triggered          &&
+                 t->tm_hour == current_alarm_h &&
+                 t->tm_min  == current_alarm_m &&
+                 t->tm_sec  == 0) 
         {
+            pthread_mutex_lock(&alarm_mutex);
+            state.alarmTriggered = 1;
+            pthread_mutex_unlock(&alarm_mutex);
             should_ring = 1;
         }
 
-        if (should_ring)
+        if (should_ring) 
         {
-            printf(BOLD RED "\n!!! ALARM IS RINGING !!!\a\n" RESET);
+            const char *frames[] = 
+            {
+                BOLD RED "  !!! ALARM IS RINGING !!!  " RESET,
+                BOLD YELLOW "  *** ALARM IS RINGING ***  " RESET
+            };
+            printf("\n%s\a\n", frames[ring_frame % 2]);
+            ring_frame++;
             fflush(stdout);
+        } 
+        else 
+        {
+            ring_frame = 0;
         }
 
         sleep(1);
@@ -95,16 +168,24 @@ void* clock_thread(void* arg)
 void* input_thread(void* arg) 
 {
     char ch;
-    while (1)
-        {
+    while (1) 
+    {
         if (scanf(" %c", &ch) == 1) 
         {
-            if (ch == 's' || ch == 'S')
+            if (ch == 's' || ch == 'S') 
             {
                 pthread_mutex_lock(&alarm_mutex);
-                isSnoozed = 1;
-                snoozeUntil = time(NULL) + 10;
+                state.isSnoozed      = 1;
+                state.alarmTriggered = 0;
+                state.snoozeUntil    = time(NULL) + 10;
                 pthread_mutex_unlock(&alarm_mutex);
+            } 
+            else if (ch == 'q' || ch == 'Q') 
+            {
+                pthread_mutex_lock(&alarm_mutex);
+                state.isRunning = 0;
+                pthread_mutex_unlock(&alarm_mutex);
+                break;
             }
         }
     }
@@ -115,15 +196,21 @@ int main()
 {
     pthread_mutex_init(&alarm_mutex, NULL);
 
+    startup_animation();
+
     printf(BOLD GREEN "Welcome to Pro-Clock Setup\n" RESET);
     printf("Set Alarm (HH MM): ");
-    if (scanf("%d %d", &alarmH, &alarmM) != 2) return 1;
+    if (scanf("%d %d", &state.alarmH, &state.alarmM) != 2) return 1;
 
-    if (alarmH < 0 || alarmH > 23 || alarmM < 0 || alarmM > 59) 
+    if (state.alarmH < 0 || state.alarmH > 23 || state.alarmM < 0 || state.alarmM > 59) 
     {
         printf(RED "Invalid alarm time. Use HH (0-23) and MM (0-59).\n" RESET);
         return 1;
     }
+
+    printf(BOLD GREEN "\nAlarm set for %02d:%02d. Clock starting...\n" RESET, 
+           state.alarmH, state.alarmM);
+    sleep(1);
 
     pthread_t t1, t2;
     pthread_create(&t1, NULL, clock_thread, NULL);
@@ -133,5 +220,8 @@ int main()
     pthread_join(t2, NULL);
 
     pthread_mutex_destroy(&alarm_mutex);
+
+    system("clear");
+    printf(BOLD CYAN "\n  Thank you for using MAC PRO DIGITAL CLOCK.\n\n" RESET);
     return 0;
 }
